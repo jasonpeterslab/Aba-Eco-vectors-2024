@@ -1,0 +1,415 @@
+---
+title: "Single cell expression analyses"
+author: "Jennifer Tran"
+date: "2024-08-19"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load necessary packages for these graphs:
+
+```{r, warning=FALSE, message = FALSE}
+require('pacman')
+
+p_load(dplyr, data.table, ggplot2, tidyr, RColorBrewer, stringr, ggridges, colourpicker, ggforce)
+```
+
+## Flow data ridgeplots for plasmid expression (Fig 4)
+
+Load all data tables (.csv for each sample) and sample names
+
+```{r echo=FALSE}
+aba01 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/export_Specimen_001_aba_001.csv", header = TRUE)
+aba02 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/export_Specimen_001_aba_002.csv", header = TRUE)
+aba03 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/export_Specimen_001_aba_003.csv", header = TRUE)
+aba04 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/export_Specimen_001_aba_004.csv", header = TRUE)
+aba05 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/export_Specimen_001_aba_005.csv", header = TRUE)
+aba06 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/export_Specimen_001_aba_006.csv", header = TRUE)
+aba07 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/export_Specimen_001_aba_007.csv", header = TRUE)
+aba08 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/export_Specimen_001_aba_008.csv", header = TRUE)
+aba09 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/export_Specimen_001_aba_009.csv", header = TRUE)
+aba10 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/export_Specimen_001_aba_010.csv", header = TRUE)
+
+eco01 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/export_Specimen_001_eco_1.csv", header = TRUE)
+eco02 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/export_Specimen_001_eco_2.csv", header = TRUE)
+eco03 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/export_Specimen_001_eco_3.csv", header = TRUE)
+eco04 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/export_Specimen_001_eco_4.csv", header = TRUE)
+eco05 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/export_Specimen_001_eco_5.csv", header = TRUE)
+eco06 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/export_Specimen_001_eco_6.csv", header = TRUE)
+eco07 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/export_Specimen_001_eco_7.csv", header = TRUE)
+eco08 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/export_Specimen_001_eco_8.csv", header = TRUE)
+eco09 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/export_Specimen_001_eco_9.csv", header = TRUE)
+eco10 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/export_Specimen_001_eco_10.csv", header = TRUE)
+
+sample_map <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/20240405_sample_ID.csv", header = TRUE)
+
+print(sample_map)
+```
+
+Place all loaded dataframes into a list
+
+```{r}
+#A. baumannii list
+list_of_aba <- list(aba01 = aba01, aba02 = aba02, aba03 = aba03, aba04 = aba04, 
+                    aba05 = aba05, aba06 = aba06, aba07 = aba07, aba08 = aba08, 
+                    aba09 = aba09, aba10 = aba10)
+
+combined_aba <- rbindlist(list_of_aba, idcol = "SampleID")
+
+#E. coli list
+list_of_eco <- list(eco01 = eco01, eco02 = eco02, eco03 = eco03, eco04 = eco04, 
+                    eco05 = eco05, eco06 = eco06, eco07 = eco07, eco08 = eco08,
+                    eco09 = eco09, eco10 = eco10)
+
+combined_eco <- rbindlist(list_of_eco, idcol = "SampleID")
+```
+
+```{r echo=FALSE}
+print("A. baumannii list")
+glimpse(combined_aba)
+print("E. coli list")
+glimpse(combined_eco)
+
+```
+
+Normalize fluorescence data (GFP readings) to empty vector control\
+This centers no fluorescence readings around 0; relative fluorescence
+
+
+```{r}
+##for A. baumannii
+# Filter the negative control for A. baumannii
+neg_control_ab <- combined_aba %>% filter(SampleID == "aba01") 
+
+# Calculate the mean and standard deviation for the negative control
+mean_ab <- mean(neg_control_ab$GFP, na.rm = TRUE)
+sd_ab <- sd(neg_control_ab$GFP, na.rm = TRUE)
+
+# Normalize GFP values by subtracting the mean of the negative control
+combined_aba <- combined_aba %>%
+  mutate(norm_GFP = GFP - mean_ab)
+
+# Add IDs from the sample map
+combined_aba <- combined_aba %>% 
+  left_join(sample_map, by = "SampleID")
+
+# Create a factor for IPTG concentration levels
+combined_aba$IPTG_uM_factor <- factor(
+  combined_aba$IPTG_uM, 
+  levels = unique(combined_aba$IPTG_uM[order(combined_aba$SampleID)])
+)
+
+# Add IDs from the sample map and calculate statistics for each sample
+combined_aba_stats <- combined_aba %>% 
+  group_by(SampleID) %>%
+  summarise(
+    mean = mean(GFP, na.rm = TRUE),
+    sd = sd(GFP, na.rm = TRUE),
+    N = n(),
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    sd_adj = sqrt(sd_ab^2 + sd^2),
+    mean_adj = mean - mean_ab,
+    N_final = N
+  ) %>%
+  left_join(sample_map, by = "SampleID")
+
+print(combined_aba_stats)
+```
+```{r}
+##for E. coli##
+# Filter the negative control for E. coli
+neg_control_eco <- combined_eco %>% filter(SampleID == "eco01") 
+
+# Calculate the mean and standard deviation for the negative control
+mean_eco <- mean(neg_control_eco$GFP, na.rm = TRUE)
+sd_eco <- sd(neg_control_eco$GFP, na.rm = TRUE)
+neg_n_eco <- nrow(neg_control_eco)
+
+# Normalize GFP values by subtracting the mean of the negative control
+combined_eco <- combined_eco %>%
+  mutate(norm_GFP = GFP - mean_eco)
+
+# Add IDs from the sample map
+combined_eco <- combined_eco %>% 
+  left_join(sample_map, by = "SampleID")
+
+# Create a factor for IPTG concentration levels
+combined_eco$IPTG_uM_factor <- factor(
+  combined_eco$IPTG_uM, 
+  levels = unique(combined_eco$IPTG_uM[order(combined_eco$SampleID)])
+)
+
+# Add IDs from the sample map and calculate statistics for each sample
+combined_eco_stats <- combined_eco %>% 
+  group_by(SampleID) %>%
+  summarise(
+    mean = mean(GFP, na.rm = TRUE),
+    sd = sd(GFP, na.rm = TRUE),
+    N = n(),
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    sd_adj = sqrt(sd_eco^2 + sd^2),
+    mean_adj = mean - mean_eco,
+    N_final = N
+  ) %>%
+    left_join(sample_map, by = "SampleID")
+
+print(combined_eco_stats)
+
+
+```
+
+Plot stacked density plots for each IPTG concentration
+
+#####*A. baumannii* ATCC 17978
+
+```{r}
+ggplot(combined_aba, aes(x = norm_GFP, y = IPTG_uM_factor, 
+                         height = after_stat(density))) +
+  geom_density_ridges_gradient(
+    scale = 2, # Could adjust for scale
+    aes(fill = after_stat(x)), 
+    gradient_lwd = 0.0, 
+    rel_min_height = 0.02 
+  ) +
+  scale_fill_viridis_c(name = "norm_GFP", option = "G") +
+  labs(x = "GFP Expression (Fluorescence)", y = "IPTG concentration (uM)", 
+       title = "GFP Plasmid - A. baumannii") +
+  theme_ridges() + theme(legend.position = "none") 
+```
+
+#####for *E. coli* BW25113
+
+```{r}
+ggplot(combined_eco, aes(x = norm_GFP, y = IPTG_uM_factor, height = after_stat(density))) +
+  geom_density_ridges_gradient(
+    scale = 2, 
+    aes(fill = after_stat(x)), 
+    gradient_lwd = 0.0, 
+    rel_min_height = 0.02 
+  ) +
+  scale_fill_viridis_c(name = "norm_GFP", option = "D") +
+  labs(x = "GFP Expression (Fluorescence)", y = "IPTG concentration (uM)", 
+       title = "GFP Plasmid - E. coli") +
+  theme_ridges() + theme(legend.position = "none")
+```
+
+
+
+```{r}
+# Function to perform pairwise unpaired t-tests with Bonferroni adjustment
+perform_pairwise_t_tests <- function(data) {
+  IPTG_conc <- unique(data$IPTG_uM)
+  results <- list()
+  num_comparisons <- length(IPTG_conc) * (length(IPTG_conc) - 1) / 2  # Total number of comparisons
+
+  for (i in 1:(length(IPTG_conc) - 1)) {
+    for (j in (i + 1):length(IPTG_conc)) {
+      IPTG_conc1 <- IPTG_conc[i]
+      IPTG_conc2 <- IPTG_conc[j]
+      
+      data1 <- data %>% filter(IPTG_uM == IPTG_conc1)
+      data2 <- data %>% filter(IPTG_uM == IPTG_conc2)
+
+      # Ensure that the number of rows in each group being compared is the same
+      if(nrow(data1) == nrow(data2)) {
+        # Extract values
+        mean1 <- data1$mean_adj
+        mean2 <- data2$mean_adj
+        sd1 <- data1$sd_adj
+        sd2 <- data2$sd_adj
+        n1 <- data1$N_final
+        n2 <- data2$N_final
+        
+        # Calculate standard error of the difference
+        se_diff <- sqrt(sd1^2 / n1 + sd2^2 / n2)
+        
+        if(all(se_diff > 0)) { # Ensure that no division by zero occurs
+          # Calculate Welch's t-statistic
+          t_statistic <- (mean1 - mean2) / se_diff
+
+          # Calculate degrees of freedom for Welch's t-test
+          num <- (sd1^2 / n1 + sd2^2 / n2)^2
+          denom <- ((sd1^2 / n1)^2 / (n1 - 1)) + ((sd2^2 / n2)^2 / (n2 - 1))
+          df <- num / denom
+          
+          p_value <- 2 * pt(-abs(t_statistic), df)
+          bonferroni_adj <- min(p_value * num_comparisons, 1)  # Bonferroni adjustment
+          
+          # Store results
+          results[[paste(IPTG_conc1, IPTG_conc2, sep = "_vs_")]] <- data.frame(
+            IPTG_Conc1 = IPTG_conc1,
+            IPTG_Conc2 = IPTG_conc2,
+            t_statistic = t_statistic,
+            SEM = se_diff,
+            degrees_of_freedom = df,
+            p_value = p_value,
+            Bonferroni_adj = bonferroni_adj
+          )
+        }
+      }
+    }
+  }
+
+  do.call(rbind, results)
+}
+
+
+
+# Perform pairwise comparisons within each strain
+ab_comparisons <- perform_pairwise_t_tests(combined_aba_stats)
+eco_comparisons <- perform_pairwise_t_tests(combined_eco_stats)
+```
+
+##### Welch's t-test results
+```{r, echo=FALSE}
+print("A. baumannii stats")
+print(ab_comparisons)
+```
+
+```{r, echo=FALSE}
+print("E. coli stats")
+print(eco_comparisons)
+```
+
+
+
+
+## Microscopy image analysis for plasmid expression (Fig S3)
+
+Load all data tables (.csv for each sample) and sample names
+```{r echo=FALSE}
+mic_data <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/microscopy tifs/2024_08_19/20240819 microscopy fluorescent means.csv", header = TRUE)
+
+
+mic_sample_map <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/microscopy tifs/2024_08_19/20240819 microscopy samples.csv", header = TRUE)
+
+glimpse(mic_data)
+```
+
+```{r echo=FALSE}
+print(mic_sample_map)
+```
+
+Convert data to long format and combine with map
+
+```{r}
+# Convert to long format
+mic_long <- mic_data %>%
+  pivot_longer(cols = everything(), names_to = "Sample_name", values_to = "fluor_int")
+
+# Join with the second dataframe
+merged_mic <- mic_long %>%
+  left_join(mic_sample_map, by = "Sample_name")
+
+# View the resulting dataframe
+head(merged_mic)
+```
+
+
+Plot the data as Sina plots.
+
+First for A. baumannii.
+```{r, warning=FALSE}
+merged_mic <- merged_mic %>%
+  mutate(IPTG_conc = factor(IPTG_conc, levels = c("EV", "0", "62.5", "1000")))
+
+aba_data <- merged_mic %>% filter(Strain == "Aba")
+
+# Call fluorescence threshold (mean of EV + 1 SD)
+mean_threshold <- aba_data %>% filter(IPTG_conc == "EV") %>%
+  summarise(mean_threshold = mean(fluor_int, na.rm = TRUE) + 
+              sd(fluor_int, na.rm = TRUE)) %>%
+  pull(mean_threshold)
+
+# Create the Sina plots
+ggplot(aba_data, aes(x = IPTG_conc, y = fluor_int, fill = IPTG_conc)) +
+  geom_sina(alpha = 0.25, size = 2.5) +
+  geom_hline(yintercept = mean_threshold, linetype = "dashed", 
+             color = "darkgreen", linewidth=1.25) +
+  scale_y_log10(limits = c(0.05, 100000)) +
+  theme_minimal() +
+  labs(title = "A. baumannii single cell fluorescence intensity",
+       x = "IPTG Concentration",
+       y = "Raw Fluorescence Intensity Values") +
+  theme(legend.position = "none")
+```
+
+
+Calculate percent of cells that are above the mean+SD threshold above background
+```{r}
+IPTG_percent <- aba_data %>%
+  filter(!is.na(fluor_int)) %>%  # Exclude rows where fluor_int is NA
+  group_by(IPTG_conc) %>%
+  summarise(
+    total = n(),
+    above_threshold = sum(fluor_int > mean_threshold, na.rm = TRUE),
+    percent_above_threshold = above_threshold / total * 100
+  )
+
+print(IPTG_percent)
+
+```
+
+
+
+Then for E. coli.
+```{r, warning=FALSE}
+eco_data <- merged_mic %>% filter(Strain == "Eco")
+
+# Call fluorescence threshold (mean of EV + 1 SD)
+mean_threshold <- eco_data %>% filter(IPTG_conc == "EV") %>%
+  summarise(mean_threshold = mean(fluor_int, na.rm = TRUE) + 
+              sd(fluor_int, na.rm = TRUE)) %>%
+  pull(mean_threshold)
+
+# Create the Sina plots
+ggplot(eco_data, aes(x = IPTG_conc, y = fluor_int, fill = IPTG_conc)) +
+  geom_sina(alpha = 0.25, size = 2.5) +
+  geom_hline(yintercept = mean_threshold, linetype = "dashed", 
+             color = "darkgreen", linewidth=1.25) +
+  scale_y_log10(limits = c(0.05, 100000)) +
+  theme_minimal() +
+  labs(title = "E. coli single cell fluorescence intensity",
+       x = "IPTG Concentration",
+       y = "Raw Fluorescence Intensity Values") +
+  theme(legend.position = "none")
+```
+Calculate percent of cells that are above the mean+SD threshold above background
+```{r}
+IPTG_percent <- eco_data %>%
+  filter(!is.na(fluor_int)) %>%  # Exclude rows where fluor_int is NA
+  group_by(IPTG_conc) %>%
+  summarise(
+    total = n(),
+    above_threshold = sum(fluor_int > mean_threshold, na.rm = TRUE),
+    percent_above_threshold = above_threshold / total * 100
+  )
+
+print(IPTG_percent)
+
+```
+
+
+And run statistics to determine differences (Welch's t-tests)
+
+```{r}
+pairwise_results <- pairwise.t.test(aba_data$fluor_int, aba_data$IPTG_conc, 
+                                    p.adjust.method = "bonferroni",  # Bonferroni correction
+                                    na.action = na.omit)  # Omit NAs
+print("A. baumannii stats")
+print(pairwise_results)
+```
+```{r}
+pairwise_results <- pairwise.t.test(eco_data$fluor_int, eco_data$IPTG_conc, 
+                                    p.adjust.method = "bonferroni",  # Bonferroni correction
+                                    na.action = na.omit)  # Omit NAs
+print("E. coli stats")
+print(pairwise_results)
+```
