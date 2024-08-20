@@ -81,6 +81,7 @@ combined_stats %>% filter(strain == "Ab") %>% filter(IPTG_conc != 0.05) %>%
                     ymax = mean_adj + sd_adj), width = 0.5) +
   geom_point(data = ab_points, aes(y=norm_exp_adj), 
              position = position_jitter(width = 0.2), size = 2) +
+  ylim(limits = c(-210, 60000)) +
   labs(x = "Sample", y = "mRFP expression (normalized fluorescence)",
        title = "A. baumannii PrpoE reporter assay") +
   theme_minimal() +
@@ -102,7 +103,7 @@ combined_stats %>% filter(strain == "Eco") %>%
              position = position_jitter(width = 0.2), size = 2) +
   labs(x = "Sample", y = "mRFP expression (normalized fluorescence)",
        title = "E. coli PrpoE reporter assay") +
-  # scale_y_continuous(limits = c(NA, 60000)) +
+  ylim(limits = c(-210, 60000)) +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
