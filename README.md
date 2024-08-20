@@ -1,5 +1,5 @@
 # Ab_Eco_vectors_2024
-Code for Peters lab A. baumannii and E. coli vector paper in R Markdown format and knitted to pdfs.
+Code for Peters lab _A. baumannii_ and _E. coli_ expression vector paper in R Markdown format and knitted to pdfs.
 
 Minimally processed data and data processing/analysis shown here. Raw data available upon request to Dr. Jason Peters.
 
