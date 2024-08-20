@@ -1,0 +1,759 @@
+---
+title: "Expression vector graphs, stats, and data wrangling"
+author: "Jennifer Tran"
+date: "2024-05-13"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load necessary packages for these graphs:
+
+```{r, warning=FALSE, message = FALSE}
+require('pacman')
+
+p_load(dplyr, data.table, ggplot2, tidyr, RColorBrewer, stringr, ggridges, colourpicker, ggbreak)
+```
+
+## Conjugative transfer and transposition efficency graphs (Fig S1)
+
+#### Plasmid conjugation
+
+Load plasmid data from spreadsheet (CFUs in LB vs LB+Kanamycin) as plasmid_eff
+
+```{r echo = FALSE}
+plasmid_eff <- fread("./20240426_plasmid_efficiencies.csv", header=TRUE)
+```
+
+```{r echo=FALSE}
+print(plasmid_eff)
+```
+
+Calculate efficiency if not already included
+
+```{r}
+plasmid_eff$efficiency <- plasmid_eff$LB_Kan/plasmid_eff$LB
+```
+
+Filter for *A. baumannii* ATCC 17978 and *E. coli* BW25113 empty vector data  
+Calculate mean efficiences for each
+
+```{r}
+plasmid_plot <- plasmid_eff %>%
+  filter(parent %in% c("17978", "BW25113"), plasmid == "EV")
+
+mean_efficiencies <- plasmid_plot %>%
+  group_by(parent) %>%
+  summarise(
+    mean_efficiency = mean(efficiency),
+    .groups = 'drop'
+  )
+```
+
+```{r echo=FALSE}
+print(mean_efficiencies)
+```
+
+Plot a dot plot with the mean as a bar and dashed line for limit of detection
+
+```{r}
+ggplot() +
+  geom_errorbar(data = mean_efficiencies, 
+                aes(x = parent, ymin = mean_efficiency, ymax = mean_efficiency),
+                width = 0.2, linewidth = 1.5, color = "black") +
+  geom_point(data = plasmid_plot, 
+             aes(x = parent, y = efficiency, color = parent), 
+             size = 4, alpha = 0.5) +
+  geom_hline(yintercept = 0.33e-9, linetype = "dashed", color = "black") +
+  scale_y_log10(
+    limits = c(1e-10, 1.5),
+    breaks = c(1e-10, 1e-8, 1e-6, 1e-4, 1e-2, 1),
+    labels = c(expression(10^-10), expression(10^-8), expression(10^-6), 
+               expression(10^-4), expression(10^-2), expression(10^0))) +
+  labs(x = "Strain", y = "Conjugative Efficiency", 
+       title = "Plasmid Transfer Efficiency") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+#### Tn7 transposition
+
+Load Tn7 data from spreadsheet (CFUs in LB vs LB+apramycin)
+
+```{r, echo=FALSE}
+Tn7_eff <- fread("./20240419_Tn7_efficiences.csv", header=TRUE)
+```
+
+```{r echo=FALSE}
+print(Tn7_eff)
+```
+
+Calculate efficiency if not already included
+
+```{r}
+Tn7_eff$efficiency <- Tn7_eff$LB_Apr/Tn7_eff$LB
+```
+
+Filter for *A. baumannii* ATCC 17978 and *E. coli* BW25113 empty vector data\
+Calculate the mean efficiencies for each
+
+```{r}
+Tn7_plot <- Tn7_eff %>%
+  filter(parent %in% c("17978", "BW25113"), Tn7 == "EV")
+
+mean_efficiencies <- Tn7_plot %>%
+  group_by(parent) %>%
+  summarise(
+    mean_efficiency = mean(efficiency),
+    .groups = 'drop'
+  )
+```
+
+```{r echo=FALSE}
+print(mean_efficiencies)
+```
+
+Plot a dot plot with the mean as a bar
+
+```{r}
+ggplot() +
+  geom_errorbar(data = mean_efficiencies, 
+                aes(x = parent, ymin = mean_efficiency, ymax = mean_efficiency),
+                width = 0.2, linewidth = 1.5, color = "black") +
+  geom_point(data = Tn7_plot, aes(x = parent, y = efficiency, color = parent), 
+             size = 4, alpha = 0.5) +
+  geom_hline(yintercept = (0.33e-10), linetype = "dashed", color = "black") +
+  scale_y_log10(
+    limits = c(1e-11, 1.5),
+    breaks = c(1e-10, 1e-8, 1e-6, 1e-4, 1e-2, 1),
+    labels = c(expression(10^-10), expression(10^-8), expression(10^-6), 
+               expression(10^-4), expression(10^-2), expression(10^0))) +
+  labs(x = "Strain", y = "Transposition Efficiency", 
+       title = "Tn7 Transposition Efficiency") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+## Promoter expression dot plots (Fig 2)
+
+Load cleaned plate reader data
+
+```{r echo=FALSE}
+IPTG_data <- read.csv("20231122_17_gfp_promoters.csv", header = TRUE) %>%
+  filter(dil != 0.2) %>% select(-c(dil))
+
+print(IPTG_data)
+```
+
+Subtract background values from measurements
+
+```{r}
+columns_to_normalize <- c('Pabst.fluo', 'Pabst.OD', 'PabstBR.fluo', 
+                          'PabstBR.OD', 'Ptrc.fluo', 'Ptrc.OD')
+
+background_vals <- IPTG_data %>% filter(IPTG_conc %like% "background") %>% 
+  select(all_of(columns_to_normalize))
+
+for (col in columns_to_normalize) {
+  IPTG_data[[col]] <- IPTG_data[[col]] - background_vals[[col]]
+}
+
+IPTG_data <- IPTG_data %>% filter(!(IPTG_conc %like% "background")) 
+```
+
+Normalize to cell density (fluorescence/OD)
+
+```{r}
+fluo_columns <- grep("\\.fluo$", names(IPTG_data), value = TRUE)
+od_columns <- sub("fluo", "OD", fluo_columns)
+
+for (i in seq_along(fluo_columns)) {
+  new_col_name <- paste0(sub("\\.fluo", "", fluo_columns[i]), ".Ratio")
+  IPTG_data[[new_col_name]] <- IPTG_data[[fluo_columns[i]]] / 
+    IPTG_data[[od_columns[i]]]
+}
+
+data.norm <- IPTG_data %>%
+  select(IPTG_conc, rep, ends_with(".Ratio"))
+```
+
+Subtract empty vector noise (autofluorescence)\
+Additionally calculate SD with propagated error
+
+```{r}
+#empty vector stats
+ev_stats <- data.norm %>%
+  filter(IPTG_conc == "EV") %>%
+  summarise(across(ends_with(".Ratio"), list(mean = mean, sd = sd)))
+
+#sample stats
+mean_sd_diff <- data.norm %>%
+  filter(IPTG_conc != "EV") %>%
+  group_by(IPTG_conc) %>%
+  summarise(across(ends_with(".Ratio"), list(mean = mean, sd = sd)))
+
+#subtract off EV
+data_adjusted <- data.norm %>%
+  filter(IPTG_conc != "EV") %>%
+  rowwise() %>%
+  mutate(
+    Ptrc.Ratio = Ptrc.Ratio - ev_stats$Ptrc.Ratio_mean,
+    Pabst.Ratio = Pabst.Ratio - ev_stats$Pabst.Ratio_mean,
+    PabstBR.Ratio = PabstBR.Ratio - ev_stats$PabstBR.Ratio_mean
+  )
+
+#make data long format for ggplot downstream
+data_adjusted_long <- data_adjusted %>%
+  pivot_longer(
+    cols = starts_with("p"),
+    names_to = "promoter",
+    values_to = "value"
+)
+
+mean_sd_adjusted <- data_adjusted %>%
+  group_by(IPTG_conc) %>%
+  summarise(across(ends_with(".Ratio"), list(mean = mean, sd = sd)))
+
+#final stats (means and SD)
+error_propagation <- mean_sd_adjusted %>%
+  mutate(
+    Ptrc.Ratio_PropagatedError = sqrt(mean_sd_diff$Ptrc.Ratio_sd^2 + 
+                                        ev_stats$Ptrc.Ratio_sd^2),
+    Pabst.Ratio_PropagatedError = sqrt(mean_sd_diff$Pabst.Ratio_sd^2 + 
+                                         ev_stats$Pabst.Ratio_sd^2),
+    PabstBR.Ratio_PropagatedError = sqrt(mean_sd_diff$PabstBR.Ratio_sd^2 + 
+                                           ev_stats$PabstBR.Ratio_sd^2)
+  ) %>%
+  select(IPTG_conc, ends_with("_mean"), ends_with("PropagatedError")) %>%
+  pivot_longer(
+    cols = -IPTG_conc, 
+    names_to = c("Sample", ".value"),
+    names_pattern = "(.*)(mean|PropagatedError)$"
+  ) %>%
+  mutate(Sample = str_remove(Sample, "_"))
+
+replicate_counts <- aggregate(rep ~ IPTG_conc, data = data.norm, FUN = length)
+names(replicate_counts)[2] <- "Num_Replicates"
+
+error_propagation <- merge(error_propagation, replicate_counts, 
+                           by = "IPTG_conc", all.x = TRUE)
+```
+
+```{r echo=FALSE}
+print(error_propagation)
+```
+
+Prepare data for plotting
+
+```{r}
+plot_data <- data_adjusted_long %>%
+  group_by(IPTG_conc, promoter) %>%
+  summarize(mean_value = mean(value))
+```
+
+#### Plots
+
+```{r}
+ggplot() +
+  geom_errorbar(data = plot_data, aes(x = as.factor(promoter), 
+                                      ymin = mean_value, ymax = mean_value),
+                width = 0.4, size = 2, color = "black") +
+  geom_point(data = data_adjusted_long, 
+             aes(x = as.factor(promoter), y = value), size = 4, alpha = 0.5) +
+  facet_grid(. ~ IPTG_conc) +
+  labs(x = "IPTG Concentration", 
+       y = "Relative Expression (normalized fluorescence)", 
+       title = "Expression Levels for Different Samples 
+       at IPTG Concentrations of 0 and 1mM") +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  scale_y_log10(limits = c(1, NA))
+```
+
+Calculate statistics using propagated error as SD
+
+```{r}
+# Separate the data by IPTG concentration
+data_0 <- subset(error_propagation, IPTG_conc == 0)
+data_1000 <- subset(error_propagation, IPTG_conc == 1000)
+
+# Function to manually perform pairwise Welch's t-test
+pairwise_t_test <- function(data) {
+  combinations <- combn(unique(data$Sample), 2)
+  results <- apply(combinations, 2, function(combo) {
+    sample1 <- data[data$Sample == combo[1],]
+    sample2 <- data[data$Sample == combo[2],]
+    
+    # Calculate t-statistic
+    n1 <- sample1$Num_Replicates
+    n2 <- sample2$Num_Replicates
+    s1 <- sample1$PropagatedError
+    s2 <- sample2$PropagatedError
+    x1 <- sample1$mean
+    x2 <- sample2$mean
+    
+    t_statistic <- (x1 - x2) / sqrt(s1^2 / n1 + s2^2 / n2)
+    
+    # Calculate degrees of freedom
+    df <- ((s1^2 / n1 + s2^2 / n2)^2) /
+      ((s1^2 / n1)^2 / (n1 - 1) + (s2^2 / n2)^2 / (n2 - 1))
+    
+    # Determine the p-value
+    p_value <- 2 * pt(-abs(t_statistic), df)
+    
+    return(list(samples = paste(combo, collapse = " vs "), 
+                t_statistic = t_statistic, p.value = p_value, df = df))
+  })
+  return(do.call(rbind, results))
+}
+
+# Perform the tests for both IPTG concentrations
+results_0 <- pairwise_t_test(data_0)
+results_1000 <- pairwise_t_test(data_1000)
+
+
+# Function to perform paired t-test
+paired_t_test <- function(data) {
+  # Extract unique samples
+  unique_samples <- unique(data$Sample)
+  
+  results <- data.frame(Sample = character(), mean_difference = numeric(), 
+                        t_statistic = numeric(), 
+                        p_value = numeric(), 
+                        df = numeric(), stringsAsFactors = FALSE)
+  
+  for (sample in unique_samples) {
+    # Filter data for this sample at both IPTG concentrations
+    sample_data <- subset(data, Sample == sample)
+    
+    if (nrow(sample_data) == 2) { # Ensure we have both IPTG = 0 and IPTG = 1000
+      # Extract data for IPTG = 0 and IPTG = 1000
+      d0 <- subset(sample_data, IPTG_conc == 0)
+      d1000 <- subset(sample_data, IPTG_conc == 1000)
+      
+      # Calculate mean difference
+      mean_diff <- d0$mean - d1000$mean
+      
+      # Calculate the combined standard error of the difference
+      se_diff <- sqrt(d0$PropagatedError^2 + d1000$PropagatedError^2)
+      
+      # Calculate t-statistic
+      t_statistic <- mean_diff / se_diff
+      
+      # Number of pairs is given by the number of replicates 
+      #(minimum from both groups to ensure matching pairs)
+      n <- min(d0$Num_Replicates, d1000$Num_Replicates)
+      
+      # Degrees of freedom: n - 1
+      df <- n - 1
+      
+      # Calculate p-value
+      if (df > 0) {
+        p_value <- 2 * pt(-abs(t_statistic), df)
+      } else {
+        p_value <- NA  # Not defined for df <= 0
+      }
+      
+      # Append results
+      results <- rbind(results, data.frame(Sample = sample, 
+                                           mean_difference = mean_diff, 
+                                           t_statistic = t_statistic, 
+                                           p_value = p_value, df = df))
+    }
+  }
+  
+  return(results)
+}
+
+# Perform the paired t-test
+paired_results <- paired_t_test(error_propagation)
+```
+
+#### Final stats tests with p-values
+
+Within promoter (0 vs 1 mM IPTG), paired t-test results:
+
+```{r echo=FALSE}
+# Print the results
+print(paired_results)
+```
+
+Welch's t-tests for promoters with no induction (0mM IPTG):
+
+```{r echo=FALSE}
+print(results_0)
+```
+
+Welch's t-tests for promoters at full induction (1mM IPTG):
+
+```{r echo=FALSE}
+print(results_1000)
+```
+
+## Titration of sfGFP expression across IPTG concentrations (Fig 3/S2)
+
+#### Plasmid expression
+
+Load cleaned data from plate reader
+
+```{r echo=FALSE}
+ind_exp_data <- read.csv("pAb35_sfGFP_IPTG_curve.csv", header = TRUE)
+
+print(ind_exp_data)
+```
+
+Subtract background values and normalize to cell density (fluorescence/OD)
+
+```{r}
+columns_to_normalize <- c('X19606.fluo', 'X19606.OD', 'X5075.fluo', 'X5075.OD', 
+                          'X17978.fluo', 'X17978.OD', 'Eco.fluo', 'Eco.OD')
+
+background_vals <- ind_exp_data %>% filter(IPTG_conc %like% "background") %>% 
+  select(all_of(columns_to_normalize))
+
+# Subtracting background averages from each column
+for (col in columns_to_normalize) {
+  ind_exp_data[[col]] <- ind_exp_data[[col]] - background_vals[[col]]
+}
+
+# Remove the background_average row if no longer needed
+ind_exp_data <- ind_exp_data %>% filter(!(IPTG_conc %like% "background"))
+
+# Identifying pairs of columns for division
+fluo_columns <- grep("\\.fluo$", names(ind_exp_data), value = TRUE)
+od_columns <- sub("fluo", "OD", fluo_columns)
+
+# Performing division and storing results in new columns
+for (i in seq_along(fluo_columns)) {
+  new_col_name <- paste0(sub("\\.fluo", "", fluo_columns[i]), ".Ratio")
+  ind_exp_data[[new_col_name]] <- ind_exp_data[[fluo_columns[i]]] / 
+    ind_exp_data[[od_columns[i]]]
+}
+
+data.norm <- ind_exp_data %>%
+  select(IPTG_conc, rep, ends_with(".Ratio"))
+```
+
+Subtract autofluorescence (empty vector)\
+Additionally, propagate error for standard deviation
+
+```{r}
+# Filter data for IPTG_conc = "EV" and calculate mean and SD
+ev_stats <- data.norm %>%
+  filter(IPTG_conc == "EV") %>%
+  summarise(across(ends_with(".Ratio"), list(mean = mean, sd = sd)))
+
+# Calculate mean and SD of the samples
+mean_sd_diff <- data.norm %>%
+  group_by(IPTG_conc) %>%
+  summarise(across(ends_with(".Ratio"), list(mean = mean, sd = sd))) %>%
+  filter(IPTG_conc != "EV")
+
+# Subtract mean EV from other values in each .Ratio column
+data_adjusted <- data.norm %>%
+  filter(IPTG_conc != "EV") %>%
+  rowwise() %>%
+  mutate(
+    X19606.Ratio = X19606.Ratio - ev_stats$X19606.Ratio_mean,
+    X5075.Ratio = X5075.Ratio - ev_stats$X5075.Ratio_mean,
+    X17978.Ratio = X17978.Ratio - ev_stats$X17978.Ratio_mean,
+    Eco.Ratio = Eco.Ratio - ev_stats$Eco.Ratio_mean
+  )
+
+mean_sd_adjusted <- data_adjusted %>%
+  group_by(IPTG_conc) %>%
+  summarise(across(ends_with(".Ratio"), list(mean = mean, sd = sd)))
+
+# Propagate error (assuming errors are uncorrelated)
+error_propagation <- mean_sd_adjusted %>%
+  mutate(
+    X19606.Ratio_PropagatedError = sqrt(mean_sd_diff$X19606.Ratio_sd^2 + 
+                                          ev_stats$X19606.Ratio_sd^2),
+    X5075.Ratio_PropagatedError = sqrt(mean_sd_diff$X5075.Ratio_sd^2 + 
+                                         ev_stats$X5075.Ratio_sd^2),
+    X17978.Ratio_PropagatedError = sqrt(mean_sd_diff$X17978.Ratio_sd^2 + 
+                                          ev_stats$X17978.Ratio_sd^2),
+    Eco.Ratio_PropagatedError = sqrt(mean_sd_diff$Eco.Ratio_sd^2 + 
+                                       ev_stats$Eco.Ratio_sd^2)
+  ) %>%
+  select(IPTG_conc, ends_with("_mean"), ends_with("PropagatedError")) %>%
+  pivot_longer(
+    cols = -IPTG_conc, 
+    names_to = c("Sample", ".value"),
+    names_pattern = "(.*)(mean|PropagatedError)$"
+  ) %>%
+  mutate(Sample = str_remove(Sample, "_"))
+```
+
+```{r echo=FALSE}
+print(error_propagation)
+```
+
+Plot expression with IPTG concentration on a semilog scale
+
+##### *A. baumannii* ATCC 17978 and *E. coli* BW25113
+
+```{r}
+# Select for strains and determine appropriate limits for the axes
+mean_sd_data <- error_propagation %>% 
+  filter(Sample %like% "17978" | Sample %like% "Eco") 
+
+mean_sd_data$IPTG_conc <- as.numeric(mean_sd_data$IPTG_conc)
+
+x_limits <- range(mean_sd_data$IPTG_conc, na.rm = TRUE)
+y_limits <- mean_sd_data %>%
+  mutate(
+    Lower = pmin(0, mean - PropagatedError),
+    Upper = mean + PropagatedError
+  ) %>%
+  summarise(
+    Min = min(Lower, na.rm = TRUE),
+    Max = max(Upper, na.rm = TRUE)
+  ) %>%
+  unlist() 
+```
+
+```{r}
+ggplot(mean_sd_data, aes(x = IPTG_conc, y = mean, group = Sample)) +
+  geom_point(aes(color = Sample)) +
+  geom_line(aes(color = Sample)) +
+  geom_errorbar(aes(ymin = mean - PropagatedError, 
+                    ymax = mean + PropagatedError, color = Sample), 
+                width = 0.02) +
+  geom_vline(xintercept = 0, color = "black", size = 1) + 
+  labs(x = "IPTG Concentration (uM)", 
+       y = "Expression (Normalized Fluorescence)", 
+       title = "GFP plasmid vector") +
+  theme_minimal() +
+  scale_x_log10() +
+  scale_y_continuous(limits = y_limits)  +
+  scale_color_manual(values = c("Eco.Ratio" = "lightgreen", "X17978.Ratio" = "red3"))+
+  theme(legend.position = "bottom")
+```
+
+##### *A. baumannii* ATCC 19606 and AB5075
+
+```{r}
+# Select for strains and determine appropriate limits for the axes
+mean_sd_data <- error_propagation %>% 
+  filter(Sample %like% "5075" | Sample %like% "19606") 
+
+mean_sd_data$IPTG_conc <- as.numeric(mean_sd_data$IPTG_conc)
+
+x_limits <- range(mean_sd_data$IPTG_conc, na.rm = TRUE)
+y_limits <- mean_sd_data %>%
+  mutate(
+    Lower = pmin(0, mean - PropagatedError),
+    Upper = mean + PropagatedError
+  ) %>%
+  summarise(
+    Min = min(Lower, na.rm = TRUE),
+    Max = max(Upper, na.rm = TRUE)
+  ) %>%
+  unlist() 
+```
+
+```{r}
+ggplot(mean_sd_data, aes(x = IPTG_conc, y = mean, group = Sample)) +
+  geom_point(aes(color = Sample)) +
+  geom_line(aes(color = Sample)) +
+  geom_errorbar(aes(ymin = mean - PropagatedError, 
+                    ymax = mean + PropagatedError, 
+                    color = Sample), width = 0.02) +
+  geom_vline(xintercept = 0, color = "black", size = 1) +  
+  labs(x = "IPTG Concentration (uM)", 
+       y = "Expression (Normalized Fluorescence)", 
+       title = "GFP Plasmid Induction-Expression") +
+  theme_minimal() +
+  scale_x_log10() +
+  scale_y_continuous(limits = y_limits)  +
+  scale_color_manual(values = c("X19606.Ratio" = "plum1", "X5075.Ratio" = "purple3"))+
+  theme(legend.position = "bottom")
+```
+
+#### Tn7 transposon Expression
+
+Load cleaned data from plate reader
+
+```{r echo=FALSE}
+ind_exp_Tn7data <- fread("./Tn7/240424_Tn7_expression_100.csv", header = TRUE)
+
+print(ind_exp_Tn7data)
+```
+
+Subtract background values and normalize to cell density (fluorescence/OD)
+
+```{r}
+columns_to_normalize <- c('19606.fluo', '19606.OD', '17978.fluo', '17978.OD', 
+                          'Eco.fluo', 'Eco.OD','5075.fluo', '5075.OD')
+
+# Getting the background average values
+background_vals <- ind_exp_Tn7data %>% filter(IPTG_conc %like% "background") %>% 
+  select(all_of(columns_to_normalize))
+
+# Subtracting background averages from each column
+for (col in columns_to_normalize) {
+  ind_exp_Tn7data[[col]] <- ind_exp_Tn7data[[col]] - background_vals[[col]]
+}
+
+# Remove the background_average row if no longer needed
+ind_exp_Tn7data <- ind_exp_Tn7data %>% filter(!(IPTG_conc %like% "background"))
+
+# Identifying pairs of columns for division
+fluo_columns <- grep("\\.fluo$", names(ind_exp_Tn7data), value = TRUE)
+od_columns <- sub("fluo", "OD", fluo_columns)
+
+# Performing division and storing results in new columns
+for (i in seq_along(fluo_columns)) {
+  new_col_name <- paste0(sub("\\.fluo", "", fluo_columns[i]), ".Ratio")
+  ind_exp_Tn7data[[new_col_name]] <- ind_exp_Tn7data[[fluo_columns[i]]] / 
+    ind_exp_Tn7data[[od_columns[i]]]
+}
+
+data.norm <- ind_exp_Tn7data %>%
+  select(IPTG_conc, rep, ends_with(".Ratio"))
+```
+
+Subtract autofluorescence (empty vector)
+Additionally, propagate error for standard deviation
+
+```{r}
+# Filter data for IPTG_conc = "EV" and calculate mean and SD
+ev_stats <- data.norm %>%
+  filter(IPTG_conc == "EV") %>%
+  summarise(across(ends_with(".Ratio"), list(mean = mean, sd = sd)))
+
+# Calculate mean and SD of the sample data
+mean_sd_diff <- data.norm %>%
+  group_by(IPTG_conc) %>%
+  summarise(across(ends_with(".Ratio"), list(mean = mean, sd = sd))) %>%
+  filter(IPTG_conc != "EV")
+
+# Subtract mean EV from other values in each .Ratio column
+data_adjusted <- data.norm %>%
+  filter(IPTG_conc != "EV") %>%
+  rowwise() %>%
+  mutate(
+    `19606.Ratio` = `19606.Ratio` - ev_stats$`19606.Ratio_mean`,
+    `17978.Ratio` = `17978.Ratio` - ev_stats$`17978.Ratio_mean`,
+    Eco.Ratio = Eco.Ratio - ev_stats$Eco.Ratio_mean,
+    `5075.Ratio` = `5075.Ratio` - ev_stats$`5075.Ratio_mean`
+  )
+
+mean_sd_adjusted <- data_adjusted %>%
+  group_by(IPTG_conc) %>%
+  summarise(across(ends_with(".Ratio"), list(mean = mean, sd = sd)))
+
+# Propagate error (assuming errors are uncorrelated)
+error_propagation <- mean_sd_adjusted %>%
+  mutate(
+    `19606.Ratio_PropagatedError` = sqrt(mean_sd_diff$`19606.Ratio_sd`^2 + 
+                                           ev_stats$`19606.Ratio_sd`^2),
+    `17978.Ratio_PropagatedError` = sqrt(mean_sd_diff$`17978.Ratio_sd`^2 + 
+                                           ev_stats$`17978.Ratio_sd`^2),
+    Eco.Ratio_PropagatedError = sqrt(mean_sd_diff$Eco.Ratio_sd^2 + 
+                                       ev_stats$Eco.Ratio_sd^2),
+    `5075.Ratio_PropagatedError` = sqrt(mean_sd_diff$`5075.Ratio_sd`^2 + 
+                                          ev_stats$`5075.Ratio_sd`^2)) %>%
+  select(IPTG_conc, ends_with("_mean"), ends_with("PropagatedError")) %>%
+  pivot_longer(
+    cols = -IPTG_conc, 
+    names_to = c("Sample", ".value"),
+    names_pattern = "(.*)(mean|PropagatedError)$"
+  ) %>%
+  mutate(Sample = str_remove(Sample, "_"))
+```
+
+```{r echo=FALSE}
+print(error_propagation)
+```
+
+Plot expression levels across inducer (on semilog axis)
+
+##### *A. baumannii* ATCC 17978 and *E. coli* BW25113
+
+```{r}
+# Select for strains and determine appropriate limits for the axes
+mean_sd_data <- error_propagation %>% 
+  filter(Sample %like% "17978" | Sample %like% "Eco") 
+
+mean_sd_data$IPTG_conc <- as.numeric(mean_sd_data$IPTG_conc)
+
+x_limits <- range(mean_sd_data$IPTG_conc, na.rm = TRUE)
+y_limits <- mean_sd_data %>%
+  mutate(
+    Lower = pmin(0, mean - PropagatedError),
+    Upper = mean + PropagatedError
+  ) %>%
+  summarise(
+    Min = min(Lower, na.rm = TRUE),
+    Max = max(Upper, na.rm = TRUE)
+  ) %>%
+  unlist() 
+```
+
+```{r}
+ggplot(mean_sd_data, aes(x = IPTG_conc, y = mean, group = Sample)) +
+  geom_point(aes(color = Sample)) +
+  geom_line(aes(color = Sample)) +
+  geom_errorbar(aes(ymin = mean - PropagatedError, 
+                    ymax = mean + PropagatedError, 
+                    color = Sample), width = 0.02) +
+  geom_vline(xintercept = 0, color = "black", linewidth = 1) +  
+  labs(x = "IPTG Concentration (uM)", 
+       y = "Expression (Normalized Fluorescence)", 
+       title = "Tn7 vector Induction-Expression") +
+  theme_minimal() +
+  scale_x_log10() +
+  scale_y_continuous(limits = y_limits)  +
+  scale_color_manual(values = c("Eco.Ratio" = "lightgreen", 
+                                "17978.Ratio" = "red3"))+
+  theme(legend.position = "bottom")
+```
+
+##### *A. baumannii* ATCC 19606 and AB5075
+
+```{r}
+# Select for strains and determine appropriate limits for the axes
+mean_sd_data <- error_propagation %>% 
+  filter(Sample %like% "19606" | Sample %like% "5075") 
+
+mean_sd_data$IPTG_conc <- as.numeric(mean_sd_data$IPTG_conc)
+
+x_limits <- range(mean_sd_data$IPTG_conc, na.rm = TRUE)
+y_limits <- mean_sd_data %>%
+  mutate(
+    Lower = pmin(0, mean - PropagatedError),
+    Upper = mean + PropagatedError
+  ) %>%
+  summarise(
+    Min = min(Lower, na.rm = TRUE),
+    Max = max(Upper, na.rm = TRUE)
+  ) %>%
+  unlist() 
+```
+
+```{r}
+ggplot(mean_sd_data, aes(x = IPTG_conc, y = mean, group = Sample)) +
+  geom_point(aes(color = Sample)) +
+  geom_line(aes(color = Sample)) +
+  geom_errorbar(aes(ymin = mean - PropagatedError, 
+                    ymax = mean + PropagatedError, 
+                    color = Sample), width = 0.02) +
+  geom_vline(xintercept = 0, color = "black", linewidth = 1) +
+  labs(x = "IPTG Concentration (uM)", 
+       y = "Expression (Normalized Fluorescence)", 
+       title = "Tn7 vector Induction-Expression") +
+  theme_minimal() +
+  scale_x_log10() +
+  scale_y_continuous(limits = y_limits)  +
+  scale_color_manual(values = c("19606.Ratio" = "plum1", 
+                                "5075.Ratio" = "purple3"))+
+  theme(legend.position = "bottom")
+```
+
+
