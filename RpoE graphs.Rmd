@@ -1,0 +1,295 @@
+---
+title: "rpoE graphs"
+author: "Jennifer Tran"
+date: "2024-08-19"
+output: pdf_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## RpoE fluorescence assay (Fig 5)
+
+Load necessary packages for these graphs:
+
+```{r, warning=FALSE, message = FALSE}
+require('pacman')
+
+p_load(dplyr, ggplot2, tidyr, RColorBrewer)
+```
+
+Load reformatted plate data 
+
+```{r, echo=FALSE}
+rpoE_data <- read.csv("./20240521_RpoE_data.csv", header = TRUE)
+
+print(rpoE_data)
+```
+
+Subtract off background fluorescence and normalize to OD
+```{r}
+background_vals <- rpoE_data %>% filter(IPTG_conc == "background")
+
+rpoE_norm <- rpoE_data %>% filter(IPTG_conc != "background") %>% 
+  mutate(IPTG_conc = as.numeric(IPTG_conc),
+         fluorescence = fluorescence - background_vals$fluorescence,
+         OD = OD - background_vals$OD)
+
+rpoE_norm$norm_exp <- rpoE_norm$fluorescence/rpoE_norm$OD
+```
+
+Center autofluorescence (WT, no expression vectors) around 0 and get stats
+```{r, message = FALSE}
+WT_stats <- rpoE_norm %>% filter(IPTG_conc == 0) %>%
+  group_by(strain) %>%
+  summarise(WTmean = mean(norm_exp, na.rm = TRUE),
+            WTsd = sd(norm_exp, na.rm = TRUE),
+            N = n_distinct(rep))
+
+sample_stats <- rpoE_norm %>% 
+  group_by(IPTG_conc, strain, plasmid) %>%
+  summarise(mean = mean(norm_exp, na.rm = TRUE),
+            sd = sd(norm_exp, na.rm = TRUE),
+            N = n_distinct(rep))
+
+rpoE_adjusted <- rpoE_norm %>%
+  left_join(WT_stats, by = "strain") %>%
+  mutate(combination = interaction(IPTG_conc, plasmid),
+    norm_exp_adj = norm_exp - WTmean) %>%
+  select(-WTmean, -WTsd)
+
+combined_stats <- sample_stats %>%
+  left_join(WT_stats, by = "strain") %>%
+  mutate(sd_adj = sqrt(WTsd^2 + sd^2),
+         mean_adj = mean - WTmean,
+         N_final = ifelse(N.x == N.y, N.x, NA))
+
+```
+
+Plot bar graphs with error-propagated standard deviations
+
+#####for _A. baumannii_
+```{r}
+ab_points <- rpoE_adjusted %>%
+  filter(strain == "Ab") %>% filter(IPTG_conc != 0.050)
+
+combined_stats %>% filter(strain == "Ab") %>% filter(IPTG_conc != 0.05) %>%
+  mutate(combination = interaction(IPTG_conc, plasmid)) %>%
+  ggplot(aes(x = combination, y = mean_adj)) +
+  geom_bar(stat = "identity", fill = "pink3", color = "black") +
+  geom_errorbar(aes(ymin = mean_adj - sd_adj, 
+                    ymax = mean_adj + sd_adj), width = 0.5) +
+  geom_point(data = ab_points, aes(y=norm_exp_adj), 
+             position = position_jitter(width = 0.2), size = 2) +
+  labs(x = "Sample", y = "mRFP expression (normalized fluorescence)",
+       title = "A. baumannii PrpoE reporter assay") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+#####and for _E. coli_
+```{r}
+eco_points <- rpoE_adjusted %>%
+  filter(strain == "Eco")
+
+combined_stats %>% filter(strain == "Eco") %>%
+  mutate(combination = interaction(IPTG_conc, plasmid)) %>%
+  ggplot(aes(x = combination, y = mean_adj)) +
+  geom_bar(stat = "identity", fill = "lightgreen", color = "black") +
+  geom_errorbar(aes(ymin = mean_adj - sd_adj, 
+                    ymax = mean_adj + sd_adj), width = 0.5) +
+  geom_point(data = eco_points, aes(y=norm_exp_adj), 
+             position = position_jitter(width = 0.2), size = 2) +
+  labs(x = "Sample", y = "mRFP expression (normalized fluorescence)",
+       title = "E. coli PrpoE reporter assay") +
+  # scale_y_continuous(limits = c(NA, 60000)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+And run statistics to determine differences (Welch's t-tests)
+
+```{r}
+# Function to perform pairwise unpaired t-tests
+perform_pairwise_t_tests <- function(data) {
+  plasmids <- unique(data$plasmid)
+  results <- list()
+  num_comparisons <- length(plasmids) * (length(plasmids) - 1) / 2
+
+  for (i in 1:(length(plasmids) - 1)) {
+    for (j in (i + 1):length(plasmids)) {
+      plasmid1 <- plasmids[i]
+      plasmid2 <- plasmids[j]
+      
+      data1 <- data %>% filter(plasmid == plasmid1)
+      data2 <- data %>% filter(plasmid == plasmid2)
+
+      # Ensure that the number of rows in each group being compared is the same
+      if(nrow(data1) == nrow(data2)) {
+        # Extract values
+        mean1 <- data1$mean_adj
+        mean2 <- data2$mean_adj
+        sd1 <- data1$sd_adj
+        sd2 <- data2$sd_adj
+        n1 <- data1$N_final
+        n2 <- data2$N_final
+        
+        # Calculate standard error of the difference
+        se_diff <- sqrt(sd1^2 / n1 + sd2^2 / n2)
+        
+        if(all(se_diff > 0)) { # Ensure that no division by zero occurs
+          # Calculate Welch's t-statistic
+          t_statistic <- (mean1 - mean2) / se_diff
+
+          # Calculate degrees of freedom for Welch's t-test
+          num <- (sd1^2 / n1 + sd2^2 / n2)^2
+          denom <- ((sd1^2 / n1)^2 / (n1 - 1)) + ((sd2^2 / n2)^2 / (n2 - 1))
+          df <- num / denom
+          
+          p_value <- 2 * pt(-abs(t_statistic), df)
+          bonferroni_adj <- min(p_value * num_comparisons, 1)  # Bonferroni adjustment
+          
+          # Store results
+          results[[paste(plasmid1, plasmid2, sep = "_vs_")]] <- data.frame(
+            Plasmid1 = plasmid1,
+            Plasmid2 = plasmid2,
+            t_statistic = t_statistic,
+            SEM = se_diff,
+            degrees_of_freedom = df,
+            p_value = p_value,
+            Bonferroni_adj = bonferroni_adj
+          )
+        }
+      }
+    }
+  }
+
+  do.call(rbind, results)
+}
+
+# Filter the data for Ab and Eco strains
+ab_data <- combined_stats %>% filter(strain == "Ab") %>% 
+  filter(IPTG_conc != 0.050) 
+
+eco_data <- filter(combined_stats, strain == "Eco") 
+
+# Perform pairwise comparisons within each strain
+ab_comparisons <- perform_pairwise_t_tests(ab_data)
+eco_comparisons <- perform_pairwise_t_tests(eco_data)
+```
+
+##### Welch's t-test results
+```{r, echo=FALSE}
+print("_A. baumannii_ stats")
+print(ab_comparisons)
+```
+```{r, echo=FALSE}
+print("_E. coli_ stats")
+print(eco_comparisons)
+```
+
+
+## Other RpoE-regulated promoters fluorescence assay (Fig S4)
+
+
+Load reformatted plate data 
+
+```{r, echo=FALSE}
+prom_data <- read.csv("./rpoE/20240815_rpoE_data.csv", header = TRUE)
+
+print(prom_data)
+```
+
+Subtract off background fluorescence and OD and normalize
+```{r}
+background_prom_vals <- prom_data %>% filter(strain == "background")
+
+prom_norm <- prom_data %>% filter(strain != "background") %>% 
+  mutate(fluorescence = fluorescence - background_prom_vals$fluorescence,
+         OD = OD - background_prom_vals$OD)
+
+prom_norm$norm_exp <- prom_norm$fluorescence/prom_norm$OD
+```
+
+Center background fluorescence (no promoter ahead of mRFP) around 0 and get stats
+```{r, message = FALSE}
+Pempty_stats <- prom_norm %>% filter(Tn7 == "Pempty") %>%
+  reframe(strain = 'Ab',
+            Pemptymean = mean(norm_exp, na.rm = TRUE),
+            Pemptysd = sd(norm_exp, na.rm = TRUE),
+            N = n_distinct(rep))
+
+sample_prom_stats <- prom_norm %>% 
+  group_by(plasmid, Tn7) %>%
+  summarise(strain = "Ab",
+            mean = mean(norm_exp, na.rm = TRUE),
+            sd = sd(norm_exp, na.rm = TRUE),
+            N = n_distinct(rep))
+
+prom_adjusted <- prom_norm %>%
+  left_join(Pempty_stats, by = "strain") %>%
+  mutate(combination = interaction(plasmid, Tn7),
+    norm_exp_adj = norm_exp - Pemptymean) %>%
+  select(-Pemptymean, -Pemptysd)
+
+combined_prom_stats <- sample_prom_stats %>%
+  left_join(Pempty_stats, by = "strain") %>%
+  mutate(sd_adj = sqrt(Pemptysd^2 + sd^2),
+         mean_adj = mean - Pemptymean,
+         N_final = ifelse(N.x == N.y, N.x, NA))
+
+```
+
+Plot bar graphs with error-propagated standard deviations
+
+
+```{r}
+ggplot(combined_prom_stats, aes(x = Tn7, y = mean_adj, fill = plasmid)) +
+  geom_bar(stat = "identity", position = "dodge", color = "black") +
+  geom_errorbar(aes(ymin = mean_adj - sd_adj, ymax = mean_adj + sd_adj),
+                width = 0.5, position = position_dodge(0.9)) +
+  geom_point(data = prom_adjusted, aes(x = Tn7, y = norm_exp_adj, group = plasmid), 
+             position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.9), size = 2, color = "black") +
+  labs(x = "Promoter", y = "mRFP expression (normalized fluorescence)", title = "RpoE-dependent promoter expression") +
+  scale_y_continuous(limits = c(-33, 75000)) +
+  scale_fill_manual(values = c("RpoE" = "salmon", "EV" = "grey", "none" = "gray30")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")
+```
+
+
+And run statistics to determine differences (Welch's t-tests)
+
+```{r}
+
+# Filter the data for plasmids
+PmicA_data <- filter(combined_prom_stats, Tn7 == "PmicA" | Tn7 == "Pempty")  
+
+PrybB_data <- filter(combined_prom_stats, Tn7 == "PrybB"| Tn7 == "Pempty") 
+
+PyicJ_data <- filter(combined_prom_stats, Tn7 == "PyicJ"| Tn7 == "Pempty") 
+
+
+# Perform pairwise comparisons within each strain using previously defined function
+PmicA_comparisons <- perform_pairwise_t_tests(PmicA_data)
+PrybB_comparisons <- perform_pairwise_t_tests(PrybB_data)
+PyicJ_comparisons <- perform_pairwise_t_tests(PyicJ_data)
+
+
+```
+
+##### Welch's t-test results
+```{r, echo=FALSE}
+print("PmicA stats")
+print(PmicA_comparisons)
+```
+```{r, echo=FALSE}
+print("PrybB stats")
+print(PrybB_comparisons)
+```
+```{r, echo=FALSE}
+print("PyicJ stats")
+print(PyicJ_comparisons)
+```
