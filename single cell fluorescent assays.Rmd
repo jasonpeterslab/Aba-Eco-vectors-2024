@@ -325,7 +325,7 @@ aba_data <- merged_mic %>% filter(Strain == "Aba")
 # Call fluorescence threshold (mean of EV + 1 SD)
 mean_threshold <- aba_data %>% filter(IPTG_conc == "EV") %>%
   summarise(mean_threshold = mean(fluor_int, na.rm = TRUE) + 
-              sd(fluor_int, na.rm = TRUE)) %>%
+              1.96*sd(fluor_int, na.rm = TRUE)) %>%
   pull(mean_threshold)
 
 # Create the Sina plots
@@ -343,13 +343,15 @@ ggplot(aba_data, aes(x = IPTG_conc, y = fluor_int, fill = IPTG_conc)) +
 
 
 Calculate percent of cells that are above the mean+SD threshold above background
+
+For _A. baumannii_ 
 ```{r}
 IPTG_percent <- aba_data %>%
   filter(!is.na(fluor_int)) %>%  # Exclude rows where fluor_int is NA
   group_by(IPTG_conc) %>%
   summarise(
     total = n(),
-    above_threshold = sum(fluor_int > mean_threshold, na.rm = TRUE),
+    above_threshold = sum(fluor_int >= mean_threshold, na.rm = TRUE),
     percent_above_threshold = above_threshold / total * 100
   )
 
@@ -359,14 +361,14 @@ print(IPTG_percent)
 
 
 
-Then for E. coli.
+Then for _E. coli_.
 ```{r, warning=FALSE}
 eco_data <- merged_mic %>% filter(Strain == "Eco")
 
 # Call fluorescence threshold (mean of EV + 1 SD)
 mean_threshold <- eco_data %>% filter(IPTG_conc == "EV") %>%
   summarise(mean_threshold = mean(fluor_int, na.rm = TRUE) + 
-              sd(fluor_int, na.rm = TRUE)) %>%
+              1.96*sd(fluor_int, na.rm = TRUE)) %>%
   pull(mean_threshold)
 
 # Create the Sina plots
