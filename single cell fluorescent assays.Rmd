@@ -14,7 +14,8 @@ Load necessary packages for these graphs:
 ```{r, warning=FALSE, message = FALSE}
 require('pacman')
 
-p_load(dplyr, data.table, ggplot2, tidyr, RColorBrewer, stringr, ggridges, colourpicker, ggforce)
+p_load(dplyr, data.table, ggplot2, tidyr, RColorBrewer, stringr, ggridges, 
+       colourpicker, ggforce, ggpattern)
 ```
 
 ## Flow data ridgeplots for plasmid expression (Fig 4)
@@ -414,4 +415,249 @@ pairwise_results <- pairwise.t.test(eco_data$fluor_int, eco_data$IPTG_conc,
                                     na.action = na.omit)  # Omit NAs
 print("E. coli stats")
 print(pairwise_results)
+```
+
+
+## Flow replicate data plots
+
+Load data
+```{r echo=FALSE}
+aba19 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Aba_019.csv", header = TRUE)
+aba20 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Aba_020.csv", header = TRUE)
+aba21 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Aba_021.csv", header = TRUE)
+aba22 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Aba_022.csv", header = TRUE)
+aba23 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Aba_023.csv", header = TRUE)
+aba24 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Aba_024.csv", header = TRUE)
+aba25 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Aba_025.csv", header = TRUE)
+aba26 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Aba_026.csv", header = TRUE)
+aba27 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Aba_027.csv", header = TRUE)
+aba28 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Aba_028.csv", header = TRUE)
+aba29 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Aba_029.csv", header = TRUE)
+aba30 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Aba_030.csv", header = TRUE)
+
+eco04 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Eco_004.csv", header = TRUE)
+eco05 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Eco_005.csv", header = TRUE)
+eco06 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Eco_006.csv", header = TRUE)
+eco07 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Eco_007.csv", header = TRUE)
+eco08 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Eco_008.csv", header = TRUE)
+eco09 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Eco_009.csv", header = TRUE)
+eco10 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Eco_010.csv", header = TRUE)
+eco11 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Eco_011.csv", header = TRUE)
+eco12 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Eco_012.csv", header = TRUE)
+eco13 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Eco_013.csv", header = TRUE)
+eco14 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Eco_014.csv", header = TRUE)
+eco15 <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/flow_mid-log/export_Eco_015.csv", header = TRUE)
+
+sample_map <- fread("C:/Users/jentr/OneDrive - UW-Madison/lab things/data/Ab_plasmids/240815_flow_sample_ID.csv", header = TRUE)
+
+print(sample_map)
+```
+
+Place all loaded dataframes into a list
+
+```{r}
+#A. baumannii list
+list_of_aba <- list(aba19 = aba19, aba20 = aba20, aba21 = aba21, aba22 = aba22, 
+                    aba23 = aba23, aba24 = aba24, aba25 = aba25, aba26 = aba26,
+                    aba27 = aba27, aba28 = aba28, aba29 = aba29, aba30 = aba30)
+
+combined_aba <- rbindlist(list_of_aba, idcol = "SampleID")
+
+#E. coli list
+list_of_eco <- list(eco04 = eco04, eco05 = eco05, eco06 = eco06, eco07 = eco07,
+                    eco08 = eco08, eco09 = eco09, eco10 = eco10, eco11 = eco11,
+                    eco12 = eco12, eco13 = eco13, eco14 = eco14, eco15 = eco15)
+
+combined_eco <- rbindlist(list_of_eco, idcol = "SampleID")
+```
+
+```{r echo=FALSE}
+print("A. baumannii list")
+glimpse(combined_aba)
+print("E. coli list")
+glimpse(combined_eco)
+
+```
+```{r}
+# Filter and order data for A. bau
+aba_filtered <- combined_aba %>%
+  mutate(SampleID = as.integer(gsub("aba", "", SampleID))) %>%
+  inner_join(sample_map, by = c("SampleID" = "sampleID")) %>%
+  mutate(condition = factor(interaction(vector, IPTG),
+                            levels = c("EV.1000", 
+                                       "GFP.0", 
+                                       "GFP.62.5", 
+                                       "GFP.1000")))
+
+#Normalize the data for each replicate
+aba_filtered <- aba_filtered %>%
+  group_by(replicate) %>%
+  mutate(mean_EV1000 = mean(`488 B 530_30-A`[condition == "EV.1000"], na.rm = TRUE)) %>%
+  mutate(norm_value = `488 B 530_30-A` - mean_EV1000) %>%
+  ungroup()  
+
+
+# Calculate Statistics for Welch's t-test
+aba_stats <- aba_filtered %>%
+  group_by(condition, replicate) %>%
+  summarise(
+    mean = mean(norm_value, na.rm = TRUE),
+    sd = sd(norm_value, na.rm = TRUE),
+    N = n(),
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    condition = factor(condition, levels = c("EV.1000", "GFP.0", "GFP.62.5", "GFP.1000"))
+  )
+
+print(aba_stats)
+```
+
+```{r}
+# Perform Pairwise Welch's t-tests with Bonferroni Adjustment
+perform_pairwise_t_tests <- function(data) {
+  conditions <- unique(data$condition)
+  results <- list()
+  num_comparisons <- length(conditions) * (length(conditions) - 1) / 2  # Total number of comparisons
+
+  for (i in 1:(length(conditions) - 1)) {
+    for (j in (i + 1):length(conditions)) {
+      condition1 <- conditions[i]
+      condition2 <- conditions[j]
+      
+      data1 <- data %>% filter(condition == condition1)
+      data2 <- data %>% filter(condition == condition2)
+
+      # Ensure that the number of rows in each group being compared is the same
+      if(nrow(data1) == nrow(data2)) {
+        # Extract values
+        mean1 <- data1$mean
+        mean2 <- data2$mean
+        sd1 <- data1$sd
+        sd2 <- data2$sd
+        n1 <- data1$N
+        n2 <- data2$N
+        
+        # Calculate standard error of the difference
+        se_diff <- sqrt(sd1^2 / n1 + sd2^2 / n2)
+        
+        if(all(se_diff > 0)) { # Ensure that no division by zero occurs
+          # Calculate Welch's t-statistic
+          t_statistic <- (mean1 - mean2) / se_diff
+
+          # Calculate degrees of freedom for Welch's t-test
+          num <- (sd1^2 / n1 + sd2^2 / n2)^2
+          denom <- ((sd1^2 / n1)^2 / (n1 - 1)) + ((sd2^2 / n2)^2 / (n2 - 1))
+          df <- num / denom
+          
+          p_value <- 2 * pt(-abs(t_statistic), df)
+          bonferroni_adj <- min(p_value * num_comparisons, 1)  # Bonferroni adjustment
+          
+          # Store results
+          results[[paste(condition1, condition2, sep = "_vs_")]] <- data.frame(
+            Condition1 = condition1,
+            Condition2 = condition2,
+            t_statistic = t_statistic,
+            SEM = se_diff,
+            degrees_of_freedom = df,
+            p_value = p_value,
+            Bonferroni_adj = bonferroni_adj
+          )
+        }
+      }
+    }
+  }
+
+  do.call(rbind, results)
+}
+
+# Perform pairwise comparisons within aba
+aba_comparisons <- perform_pairwise_t_tests(aba_stats)
+
+```
+
+```{r, echo =FALSE}
+print("A. baumannii pairwise t tests")
+print(aba_comparisons)
+```
+
+
+```{r}
+# Create the density plot for aba
+ggplot(aba_filtered, aes(x = norm_value, y = condition, fill = factor(replicate))) +
+  geom_density_ridges(alpha = 0.4, scale = 2, color = NA) + 
+  labs(title = "Ridge Plot for Abau (Normalized)",
+       x = "Normalized 488 B 530_30-A",
+       y = "Condition",
+       fill = "Replicate") +
+  scale_fill_manual(values = c("red", "blue", "yellow")) +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        panel.grid.major.y = element_line(linewidth = 1, color = "black"))
+```
+
+```{r}
+# Filter and order data for E. coli
+eco_filtered <- combined_eco %>%
+  mutate(SampleID = as.integer(gsub("eco", "", SampleID))) %>%
+  inner_join(sample_map, by = c("SampleID" = "sampleID")) %>%
+  mutate(condition = factor(interaction(vector, IPTG),
+                            levels = c("EV.1000", 
+                                       "GFP.0", 
+                                       "GFP.62.5", 
+                                       "GFP.1000")))
+
+#Normalize the data for each replicate
+eco_filtered <- eco_filtered %>%
+  group_by(replicate) %>%
+  mutate(mean_EV1000 = mean(`488 B 530_30-A`[condition == "EV.1000"], na.rm = TRUE)) %>%
+  mutate(norm_value = `488 B 530_30-A` - mean_EV1000) %>%
+  ungroup()  %>%
+  mutate(fill_type = factor(replicate, levels = 1:3, 
+                            labels = c("45-degree Stripes", 
+                                       "90-degree Stripes", 
+                                       "Solid Fill"))
+  )
+
+
+
+# Calculate Statistics for Welch's t-test
+eco_stats <- eco_filtered %>%
+  group_by(condition, replicate) %>%
+  summarise(
+    mean = mean(norm_value, na.rm = TRUE),
+    sd = sd(norm_value, na.rm = TRUE),
+    N = n(),
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    condition = factor(condition, levels = c("EV.1000", "GFP.0", "GFP.62.5", "GFP.1000"))
+  )
+
+print(eco_stats)
+```
+
+```{r}
+# Perform pairwise t tests using previously defined function
+
+eco_comparisons <- perform_pairwise_t_tests(eco_stats)
+
+```
+
+```{r, echo =FALSE}
+print("E. coli pairwise t tests")
+print(eco_comparisons)
+```
+```{r}
+# Create overlapping density plots with solid colors
+ggplot(eco_filtered, aes(x = norm_value, y = condition, fill = factor(replicate))) +
+  geom_density_ridges(alpha = 0.4, scale = 2, color = NA) + 
+  labs(title = "Ridge Plot for eco (Normalized)",
+       x = "Normalized 488 B 530_30-A",
+       y = "Condition",
+       fill = "Replicate") +
+  scale_fill_manual(values = c("red", "blue", "yellow")) +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        panel.grid.major.y = element_line(linewidth = 1, color = "black"))
 ```
